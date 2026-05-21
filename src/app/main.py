@@ -73,6 +73,7 @@ def main():
 
         scraper.open_home()
         scraper.perform_search()
+        scraper.solve_slider_captcha()
         scraper.apply_filters()
         scraper.apply_date_filter_to_current_url()
         articles = scraper.extract_results()
@@ -90,6 +91,11 @@ def main():
         )
 
         logger.success("Arquivo Excel salvo com sucesso")
+
+    except Exception as e:
+        # Captura o erro, gera o log com o traceback e evita que o robô encerre sem avisar o motivo
+        logger.exception(f"Erro crítico durante a execução do scraper: {e}")
+
     finally:
         driver.quit()
         logger.info("Driver encerrado com sucesso")

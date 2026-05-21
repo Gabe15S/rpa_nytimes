@@ -7,12 +7,13 @@ aplicar filtros e extrair metadados de artigos no site do NYT.
 """
 
 import os
+import random
 from datetime import datetime, timedelta
 from time import sleep
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from dateutil.relativedelta import relativedelta
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -114,6 +115,91 @@ class NYTimesScraper:
 
         logger.error(f"Falha definitiva: Nao foi possivel clicar no elemento {locator} apos {retries} tentativas.")
         raise RuntimeError(f"Nao foi possivel clicar no elemento {locator} apos {retries} tentativas.")
+    
+    def solve_slider_captcha(self) -> bool:
+        """
+        Identifica e resolve mecanicamente o Slider CAPTCHA presente em iframes da página.
+
+        O método localiza o iframe do desafio, altera o contexto do WebDriver, calcula
+        a distância dinâmica baseada nas dimensões do container e executa o arrasto
+        simulando trajetórias e tempos de reação humanos.
+
+        Returns:
+            bool: True se o CAPTCHA não foi encontrado ou se foi processado com sucesso.
+
+        Raises:
+            TimeoutException: Se elementos estruturais do CAPTCHA não carregarem a tempo.
+            Exception: Se ocorrer qualquer falha inesperada durante a manipulação física.
+        """
+        logger.info("Iniciando resolucao do Slider CAPTCHA com medicao dinamica...")
+        
+        try:
+            # 1. TENTA ENCONTRAR O IFRAME: Se não encontrar, assume que não há CAPTCHA
+            iframe_locator = (By.XPATH, "//iframe[contains(@title, 'challenge') or contains(@src, 'captcha')]")
+            
+            try:
+                logger.info("Verificando a presenca do iframe do CAPTCHA...")
+                # Usando o self.wait padrão do seu projeto para não dar erro de atributo
+                iframe_element = self.wait.until(EC.presence_of_element_located(iframe_locator))
+                self.driver.switch_to.frame(iframe_element)
+                logger.info("Foco alterado para dentro do iframe com sucesso.")
+            except TimeoutException:
+                logger.info("Iframe do CAPTCHA nao foi encontrado. Prosseguindo com o fluxo normal da pagina...")
+                return True
+
+            # 2. Agora sim, o Selenium vai enxergar o container!
+            container = self.wait.until(
+                EC.presence_of_element_located((By.CLASS_NAME, "sliderContainer"))
+            )
+            total_width = container.size['width']
+                            
+            knob = self.driver.find_element(By.CLASS_NAME, "slider")
+            knob_width = knob.size['width']
+
+            # Cálculo matemático bruto
+            distance_to_move = total_width - knob_width
+
+            # 💡 AJUSTE AQUI: Se ele para ANTES do fim, adicione pixels. 
+            # Comece testando com +10 ou +15 até encaixar perfeitamente no encaixe do CAPTCHA.
+            fator_correcao = 20
+            distance_to_move += fator_correcao
+
+            logger.info(f"Largura da barra: {total_width}px | Distancia real de arrasto (com correcao de {fator_correcao}px): {distance_to_move}px")
+                            
+            # --- Movimentação Fluida e Rápida de Uma Vez Só ---
+            logger.info("Calculando o arrasto continuo em velocidade unica...")
+
+            # Instancia a cadeia de ações (uma única vez basta)
+            actions = ActionChains(self.driver)
+
+            # Adiciona um leve tremor randômico no eixo Y para quebrar a linha perfeita
+            y_tremor_final = random.choice([-1, 0, 1])
+
+            logger.info("Movendo ate o botao, clicando e arrastando com tempo de reacao humano curto...")
+
+            # O FLUXO EM UMA RAJADA SÓ:
+            # 1. move_to_element: Move o mouse até o slider (foco)
+            # 2. pause: Aguarda um tempo curto (ex: entre 0.2 e 0.5s) SIMULANDO o tempo entre pôr o mouse e arrastar
+            # 3. drag_and_drop_by_offset: Clica, segura, desliza direto até o fim e solta!
+            actions.move_to_element(knob) \
+                .pause(random.uniform(0.2, 0.5)) \
+                .drag_and_drop_by_offset(knob, distance_to_move, y_tremor_final) \
+                .perform()
+
+            logger.info("Movimentacao e release do slider concluidos de uma vez so.")
+            
+            # 3. MUITO IMPORTANTE: Volte o foco para a página principal após terminar!
+            self.driver.switch_to.default_content()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erro ao tentar resolver mecanicamente o Slider CAPTCHA: {str(e)}")
+            try:
+                self.driver.switch_to.default_content()
+            except Exception:
+                pass
+            # Levanta um erro descritivo preservando o erro original
+            raise RuntimeError(f"Falha na execucao interna do resolvedor de CAPTCHA: {str(e)}") from e
 
 
     def open_home(self):
@@ -305,14 +391,18 @@ class NYTimesScraper:
         logger.info("Carregando mais resultados (clicando em 'Show More')...")
         sleep(6)
         while True:
-            botao_clicado = self.safe_click(By.XPATH, "//button[contains(text(), 'Show More')]", retries=1, delay=0)
-            
-            if not botao_clicado:
+            try:
+                # Encontra o botão de forma nativa e clica
+                botao = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Show More')]")
+                botao.click()
+                
+                logger.debug("Botao 'Show More' clicado. Aguardando novos resultados...")
+                sleep(2)
+                
+            except NoSuchElementException:
+                # Se o botão sumir ou todos os resultados carregarem, cai aqui e para o loop
                 logger.info("Todos os resultados foram carregados (botao 'Show More' nao esta mais disponivel).")
                 break
-                
-            logger.debug("Botao 'Show More' clicado. Aguardando novos resultados...")
-            sleep(2)
 
         try:
             cards = self.wait.until(
