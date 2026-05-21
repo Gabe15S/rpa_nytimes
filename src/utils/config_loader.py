@@ -7,7 +7,7 @@ estruturados a partir de arquivos de configuracao no formato YAML.
 
 import os
 import yaml
-from utils.logger import logger
+from src.utils.logger import logger
 
 CONFIG_PATH = os.path.join("config", "config.yaml")
 
