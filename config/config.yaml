@@ -1,0 +1,8 @@
+categories:
+- Business
+months_range: 6
+search_phrase: Cuba
+site_url: https://www.nytimes.com/
+
+
+browser_headless: true

@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  nyt-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nyt_scraper_container
+    
+    # Previne crashes do Chrome expandindo a memória compartilhada
+    shm_size: '2gb'
+    
+    # Sincroniza as pastas locais com a WORKDIR (/app) do container
+    volumes:
+      - ./output:/app/output
+      - ./config:/app/config  
+      
+    restart: "no"
